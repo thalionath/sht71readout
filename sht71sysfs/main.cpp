@@ -5,7 +5,8 @@
 #include <stdexcept>
 #include <cstring>
 #include <vector>
-#include <unistd.h>
+#include <thread>
+#include <chrono>
 
 namespace sysfs
 {
@@ -34,6 +35,11 @@ namespace sysfs
             fp_ = fp;
         }
 
+        ~File()
+        {
+            fclose(fp_);
+        }
+
         File& write(uint8_t const* data, size_t size)
         {
             if( 0 == fwrite(data, size, 1, fp_) )
@@ -42,7 +48,7 @@ namespace sysfs
                     strerror(errno)
                 );
 
-                throw std::runtime_error("write incomplete: " + error);
+                throw std::runtime_error("write failed: " + error);
             }
 
             return *this;
@@ -85,11 +91,6 @@ namespace sysfs
                 buffer.size()
             };
         }
-
-        ~File()
-        {
-            fclose(fp_);
-        }
     };
 
     enum Direction
@@ -118,22 +119,18 @@ namespace sysfs
 
     public:
 
-        Gpio(unsigned id, Direction dir = Input)
+        Gpio(unsigned id)
         : id_(id)
         {
-            // export the port
+            // make sure that the GPIO is exposed to sysfs
             File("/sys/class/gpio/export", "wb").write(
                 std::to_string(id)
             );
-
-            direction(dir);
         }
 
         ~Gpio()
         {
-            File("/sys/class/gpio/unexport", "wb").write(
-                std::to_string(id_)
-            );
+            // must not throw in destructor
         }
 
         Gpio& direction(Direction dir)
@@ -306,6 +303,7 @@ public:
     static auto constexpr d1 = -39.60;
     static auto constexpr d2 =   0.01;
 
+    // see datsheet
     enum Command
     {
         MeasureTemperature      = 0b00011,
@@ -316,15 +314,15 @@ public:
 
     enum Result
     {
-        Success,
-        CrcError
+        Success  = 0,
+        Timeout  = 1,
+        CrcError = 2
     };
 
     Sht71()
     : data_(1)
     , clk_(0)
-    {
-    }
+    {}
 
     void clockCycle()
     {
@@ -392,11 +390,26 @@ public:
 
         clockCycle();
 
-        usleep(50000);
+        // datasheet states that conversion takes 320 ms for a 14-bit conversion
+        using namespace std::chrono_literals;
 
-        auto counter = 0u;
+        auto t0 = std::chrono::steady_clock::now();
 
-        while( data_.isHigh() ) { counter++; }
+        std::this_thread::sleep_for(320ms);
+
+        while( data_.isHigh() )
+        {
+            auto const t1 = std::chrono::steady_clock::now();
+
+            auto const t = std::chrono::duration_cast<
+                std::chrono::milliseconds
+            >(t1 - t0);
+
+            if( t > 500ms )
+            {
+                return Result::Timeout;
+            }
+        }
 
         Crc crc;
 
@@ -412,12 +425,17 @@ public:
             crc.add(byte);
         }
 
-        auto expected_crc = readByte();
+        auto const expected_crc = readByte();
 
         data_ = Output;
         data_ = High;
 
-        return crc.reversed().value() == expected_crc ? Result::Success : Result::CrcError;
+        if( crc.reversed().value() != expected_crc )
+        {
+            return Result::CrcError;
+        }
+
+        return Result::Success;
     }
 
     Result readRelativeHumidity(double& rh_linear)
