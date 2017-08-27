@@ -15,6 +15,11 @@ Note: SHT7x will reach end-of-life and should not be used for new projects.
 
     sudo make uninstall
 
+## Sensor Pinout
+
+ * CLK  = GPIO 0
+ * DATA = GPIO 1
+
 ## Usage
 
 Output:
