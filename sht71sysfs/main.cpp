@@ -493,22 +493,27 @@ public:
 
 int main()
 {
-    /*
-    Crc c;
-
-    c.add(0b101).add(0b1001).add(0b110001);
-
-    printf("%02x\r\n", c.value());
-    */
-
     auto constexpr sensor_id = 0u;
 
-    Sht71 sht71;
-
-    Measurement m;
-
-    if( Sht71::Success == sht71.read(m) )
+    try
     {
+        Sht71 sht71;
+
+        Measurement m;
+
+        auto const result = sht71.read(m);
+
+        if( Sht71::Success != result )
+        {
+            fprintf(
+                stderr,
+                "sensor readout failed, error code: %d\r\n",
+                result
+            );
+
+            return -result;
+        }
+
         printf(
             "sht71,sensor=%u status=%u,t=%f,rh_linear=%f,rh_true=%f",
             sensor_id,
@@ -517,6 +522,16 @@ int main()
             m.rh_linear,
             m.rh_true
         );
+    }
+    catch(std::exception const& e)
+    {
+        fprintf(
+            stderr,
+            "%s\r\n",
+            e.what()
+        );
+
+        return -1;
     }
 
     return 0;
