@@ -48,11 +48,21 @@ namespace sysfs
             return *this;
         }
 
-        File& write(const char* string)
+        File& write(char const* string)
         {
             return write(
                 reinterpret_cast<uint8_t const*>(string),
                 std::strlen(string)
+            );
+        }
+
+        File& write(std::string const& string)
+        {
+            return write(
+                reinterpret_cast<uint8_t const*>(
+                    string.data()
+                ),
+                string.length()
             );
         }
 
@@ -112,9 +122,18 @@ namespace sysfs
         : id_(id)
         {
             // export the port
-            File("/sys/class/gpio/export", "wb").write('1');
+            File("/sys/class/gpio/export", "wb").write(
+                std::to_string(id)
+            );
 
             direction(dir);
+        }
+
+        ~Gpio()
+        {
+            File("/sys/class/gpio/unexport", "wb").write(
+                std::to_string(id_)
+            );
         }
 
         Gpio& direction(Direction dir)
